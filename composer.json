@@ -1,7 +1,7 @@
 {
     "name": "semitexa/rbac",
     "description": "Role-Based Access Control module for Semitexa Framework",
-    "version": "v1.0.0",
+    "version": "1.0.2",
     "type": "semitexa-module",
     "license": "MIT",
     "require": {
