@@ -18,5 +18,11 @@
         "semitexa-module": {
             "extends": null
         }
-    }
+    },
+    "keywords": [
+        "semitexa",
+        "rbac",
+        "roles",
+        "permissions"
+    ]
 }
