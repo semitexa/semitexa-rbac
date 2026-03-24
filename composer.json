@@ -1,6 +1,6 @@
 {
     "name": "semitexa/rbac",
-    "description": "Role-Based Access Control module for Semitexa Framework",
+    "description": "Semitexa RBAC - role-based access control with roles, grants, and permission assignment",
     "version": "1.0.2",
     "type": "semitexa-module",
     "license": "MIT",
@@ -18,5 +18,12 @@
         "semitexa-module": {
             "extends": null
         }
-    }
+    },
+    "keywords": [
+        "semitexa",
+        "rbac",
+        "roles",
+        "permissions",
+        "grants"
+    ]
 }
