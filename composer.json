@@ -1,29 +1,28 @@
 {
-    "name": "semitexa/rbac",
-    "description": "Semitexa RBAC - role-based access control with roles, grants, and permission assignment",
-    "version": "v1.0.4",
-    "type": "semitexa-module",
-    "license": "MIT",
-    "require": {
-        "php": "^8.4",
-        "semitexa/core": "^1.0",
-        "semitexa/authorization": "^1.0"
-    },
-    "autoload": {
-        "psr-4": {
-            "Semitexa\\Rbac\\": "src/"
-        }
-    },
-    "extra": {
-        "semitexa-module": {
-            "extends": null
-        }
-    },
-    "keywords": [
-        "semitexa",
-        "rbac",
-        "roles",
-        "permissions",
-        "grants"
-    ]
+  "name": "semitexa/rbac",
+  "description": "Semitexa RBAC - role-based access control with roles, grants, and permission assignment",
+  "type": "semitexa-module",
+  "license": "MIT",
+  "require": {
+    "php": "^8.4",
+    "semitexa/core": "^1.0",
+    "semitexa/authorization": "^1.0"
+  },
+  "autoload": {
+    "psr-4": {
+      "Semitexa\\Rbac\\": "src/"
+    }
+  },
+  "extra": {
+    "semitexa-module": {
+      "extends": null
+    }
+  },
+  "keywords": [
+    "semitexa",
+    "rbac",
+    "roles",
+    "permissions",
+    "grants"
+  ]
 }
