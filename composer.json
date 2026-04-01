@@ -1,7 +1,7 @@
 {
     "name": "semitexa/rbac",
     "description": "Semitexa RBAC - role-based access control with roles, grants, and permission assignment",
-    "version": "1.0.2",
+    "version": "v1.0.4",
     "type": "semitexa-module",
     "license": "MIT",
     "require": {
