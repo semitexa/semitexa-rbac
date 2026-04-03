@@ -1,4 +1,4 @@
-# semitexa/rbac
+# Semitexa RBAC
 
 Role-based access control with roles, capability grants, and per-request decision caching.
 
