@@ -12,7 +12,6 @@ use Semitexa\Authorization\Grant\SubjectGrantSet;
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Attribute\SatisfiesServiceContract;
 use Semitexa\Core\Authorization\SubjectInterface;
-use Semitexa\Rbac\Capability\CapabilityRegistryInterface;
 use Semitexa\Rbac\Contract\PermissionProviderInterface;
 use Semitexa\Rbac\Runtime\RbacDecisionCache;
 
