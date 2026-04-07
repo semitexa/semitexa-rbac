@@ -105,10 +105,9 @@ final class SubjectGrantResolver implements SubjectGrantResolverInterface
      */
     private function resolveDemoRolePermissions(string $userId): ?array
     {
-        /** @var DemoRolePermissionProvider|null $provider */
         $provider = $this->tryResolve(DemoRolePermissionProvider::class);
-        if ($provider === null) {
-            return null;
+        if (! $provider instanceof DemoRolePermissionProvider) {
+            $provider = new DemoRolePermissionProvider();
         }
 
         return $provider->getPermissionsForUser($userId);
