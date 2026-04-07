@@ -11,9 +11,11 @@ use Semitexa\Authorization\Grant\PermissionGrantSet;
 use Semitexa\Authorization\Grant\SubjectGrantSet;
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Attribute\SatisfiesServiceContract;
+use Semitexa\Core\Environment;
 use Semitexa\Core\Authorization\SubjectInterface;
 use Semitexa\Rbac\Contract\PermissionProviderInterface;
 use Semitexa\Rbac\Runtime\RbacDecisionCache;
+use Semitexa\Rbac\Service\DemoRolePermissionProvider;
 
 /**
  * Resolves capability and permission grants for a subject.
@@ -25,12 +27,6 @@ use Semitexa\Rbac\Runtime\RbacDecisionCache;
 #[SatisfiesServiceContract(of: SubjectGrantResolverInterface::class)]
 final class SubjectGrantResolver implements SubjectGrantResolverInterface
 {
-    private const DEMO_ROLE_PERMISSIONS = [
-        'admin' => ['products.read', 'products.write', 'users.manage', 'orders.manage', 'settings.manage'],
-        'editor' => ['products.read', 'products.write'],
-        'viewer' => ['products.read'],
-    ];
-
     #[InjectAsReadonly]
     protected ?ContainerInterface $container = null;
 
@@ -45,13 +41,15 @@ final class SubjectGrantResolver implements SubjectGrantResolverInterface
 
         $userId = $subject->getIdentifier() ?? '';
 
-        if (str_starts_with($userId, 'google:')) {
+        if ($this->isDemoRolePermissionsEnabled() && str_starts_with($userId, 'google:')) {
             $permissions = $this->resolveDemoRolePermissions($userId);
             if ($permissions !== null) {
-                return new SubjectGrantSet(
+                $grants = new SubjectGrantSet(
                     new CapabilityGrantSet([]),
                     new PermissionGrantSet($permissions),
                 );
+                RbacDecisionCache::set($userId, $grants);
+                return $grants;
             }
         }
 
@@ -107,17 +105,21 @@ final class SubjectGrantResolver implements SubjectGrantResolverInterface
      */
     private function resolveDemoRolePermissions(string $userId): ?array
     {
-        $parts = explode(':', $userId, 3);
-        if (count($parts) !== 3) {
+        /** @var DemoRolePermissionProvider|null $provider */
+        $provider = $this->tryResolve(DemoRolePermissionProvider::class);
+        if ($provider === null) {
             return null;
         }
 
-        [, , $role] = $parts;
-        if (!isset(self::DEMO_ROLE_PERMISSIONS[$role])) {
-            return null;
-        }
+        return $provider->getPermissionsForUser($userId);
+    }
 
-        return self::DEMO_ROLE_PERMISSIONS[$role];
+    private function isDemoRolePermissionsEnabled(): bool
+    {
+        $appEnv = strtolower(Environment::getEnvValue('APP_ENV', 'prod') ?? 'prod');
+
+        return $appEnv !== 'prod'
+            || Environment::getEnvValue('DEMO_RBAC_ENABLED', 'false') === 'true';
     }
 
     private function tryResolve(string $class): ?object
