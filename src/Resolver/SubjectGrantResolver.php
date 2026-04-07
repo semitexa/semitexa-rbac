@@ -25,6 +25,12 @@ use Semitexa\Rbac\Runtime\RbacDecisionCache;
 #[SatisfiesServiceContract(of: SubjectGrantResolverInterface::class)]
 final class SubjectGrantResolver implements SubjectGrantResolverInterface
 {
+    private const DEMO_ROLE_PERMISSIONS = [
+        'admin' => ['products.read', 'products.write', 'users.manage', 'orders.manage', 'settings.manage'],
+        'editor' => ['products.read', 'products.write'],
+        'viewer' => ['products.read'],
+    ];
+
     #[InjectAsReadonly]
     protected ?ContainerInterface $container = null;
 
@@ -38,6 +44,16 @@ final class SubjectGrantResolver implements SubjectGrantResolverInterface
         }
 
         $userId = $subject->getIdentifier() ?? '';
+
+        if (str_starts_with($userId, 'google:')) {
+            $permissions = $this->resolveDemoRolePermissions($userId);
+            if ($permissions !== null) {
+                return new SubjectGrantSet(
+                    new CapabilityGrantSet([]),
+                    new PermissionGrantSet($permissions),
+                );
+            }
+        }
 
         $cached = RbacDecisionCache::get($userId);
         if ($cached !== null) {
@@ -84,6 +100,24 @@ final class SubjectGrantResolver implements SubjectGrantResolverInterface
         }
 
         return [];
+    }
+
+    /**
+     * @return list<string>|null
+     */
+    private function resolveDemoRolePermissions(string $userId): ?array
+    {
+        $parts = explode(':', $userId, 3);
+        if (count($parts) !== 3) {
+            return null;
+        }
+
+        [, , $role] = $parts;
+        if (!isset(self::DEMO_ROLE_PERMISSIONS[$role])) {
+            return null;
+        }
+
+        return self::DEMO_ROLE_PERMISSIONS[$role];
     }
 
     private function tryResolve(string $class): ?object
