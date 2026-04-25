@@ -28,7 +28,7 @@ use Semitexa\Rbac\Service\DemoRolePermissionProvider;
 final class SubjectGrantResolver implements SubjectGrantResolverInterface
 {
     #[InjectAsReadonly]
-    protected ?ContainerInterface $container = null;
+    protected ContainerInterface $container;
 
     public function resolve(SubjectInterface $subject): SubjectGrantSet
     {
@@ -123,7 +123,7 @@ final class SubjectGrantResolver implements SubjectGrantResolverInterface
 
     private function tryResolve(string $class): ?object
     {
-        if ($this->container === null) {
+        if (!isset($this->container)) {
             return null;
         }
         try {
