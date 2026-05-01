@@ -2,9 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Semitexa\Rbac\Capability;
+namespace Semitexa\Rbac\Application\Service;
 
-use Semitexa\Authorization\Capability\Capability;
+use Semitexa\Rbac\Domain\Contract\CapabilityRegistryInterface;
+
+use Semitexa\Authorization\Domain\Contract\CapabilityInterface;
 
 /**
  * Default capability registry implementation.
@@ -13,7 +15,7 @@ use Semitexa\Authorization\Capability\Capability;
  * The subject's capability grant is a list of integer segments; the registry
  * evaluates whether the required bit is set in the appropriate segment.
  *
- * This is the internal bitmask model. The public boundary remains Capability enum values.
+ * This is the internal bitmask model. The public boundary remains CapabilityInterface enum values.
  */
 final class CapabilityRegistry implements CapabilityRegistryInterface
 {
@@ -26,16 +28,16 @@ final class CapabilityRegistry implements CapabilityRegistryInterface
     /**
      * Register a capability with its bitmask position.
      *
-     * @param Capability $capability The enum case to register
+     * @param CapabilityInterface $capability The enum case to register
      * @param int $segment           Zero-based segment index (each int = 32 bits)
      * @param int $bit               Zero-based bit position within the segment (0–31)
      */
-    public function register(Capability $capability, int $segment, int $bit): void
+    public function register(CapabilityInterface $capability, int $segment, int $bit): void
     {
         $this->map[$this->key($capability)] = ['segment' => $segment, 'bit' => $bit];
     }
 
-    public function check(Capability $capability, array $subjectSegments): bool
+    public function check(CapabilityInterface $capability, array $subjectSegments): bool
     {
         $key = $this->key($capability);
 
@@ -50,7 +52,7 @@ final class CapabilityRegistry implements CapabilityRegistryInterface
         return (bool) ($segment & (1 << $pos['bit']));
     }
 
-    private function key(Capability $capability): string
+    private function key(CapabilityInterface $capability): string
     {
         return $capability::class . '::' . (method_exists($capability, 'name') ? $capability->name : (string) $capability);
     }

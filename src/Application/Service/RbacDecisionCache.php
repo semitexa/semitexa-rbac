@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Semitexa\Rbac\Runtime;
+namespace Semitexa\Rbac\Application\Service;
 
-use Semitexa\Authorization\Grant\SubjectGrantSet;
+use Semitexa\Authorization\Domain\Model\SubjectGrantSet;
 
 /**
  * Request-scoped, Swoole-coroutine-aware cache for resolved subject grants.

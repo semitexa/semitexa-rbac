@@ -2,15 +2,15 @@
 
 declare(strict_types=1);
 
-namespace Semitexa\Rbac\Capability;
+namespace Semitexa\Rbac\Domain\Contract;
 
-use Semitexa\Authorization\Capability\Capability;
+use Semitexa\Authorization\Domain\Contract\CapabilityInterface;
 
 /**
- * Registry mapping Capability enum cases to bitmask segment/bit positions.
+ * Registry mapping CapabilityInterface enum cases to bitmask segment/bit positions.
  *
  * The bitmask layout is an implementation detail of semitexa-rbac.
- * Consumers interact with Capability values, not segment indices.
+ * Consumers interact with CapabilityInterface values, not segment indices.
  */
 interface CapabilityRegistryInterface
 {
@@ -19,5 +19,5 @@ interface CapabilityRegistryInterface
      *
      * @param int[] $subjectSegments Bitmask segments from the subject's grant record
      */
-    public function check(Capability $capability, array $subjectSegments): bool;
+    public function check(CapabilityInterface $capability, array $subjectSegments): bool;
 }
