@@ -11,16 +11,41 @@ use Semitexa\Authorization\Domain\Model\PermissionGrantSet;
 use Semitexa\Authorization\Domain\Model\SubjectGrantSet;
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Attribute\SatisfiesServiceContract;
+use Semitexa\Core\Auth\AuthSubjectType;
 use Semitexa\Core\Authorization\SubjectInterface;
 use Semitexa\Core\Environment;
+use Semitexa\Core\Tenant\Layer\OrganizationLayer;
+use Semitexa\Core\Tenant\TenantContextStoreInterface;
+use Semitexa\Rbac\Domain\Contract\CapabilityProviderInterface;
 use Semitexa\Rbac\Domain\Contract\PermissionProviderInterface;
+use Semitexa\Rbac\Domain\Contract\ServiceCapabilityProviderInterface;
 
 /**
  * Resolves capability and permission grants for a subject.
  *
- * Delegates permission lookup to PermissionProviderInterface (implemented by
- * semitexa-platform-user or any other RBAC backend). Results are cached per
- * request per user via RbacDecisionCache.
+ * Routes by AuthSubjectType:
+ *   User    → PermissionProviderInterface + CapabilityProviderInterface
+ *   Service → ServiceCapabilityProviderInterface (no permissions — service
+ *             permissions are not modeled today; service auth is capability-
+ *             based)
+ *   null    → defaults to User for backwards compatibility with callers
+ *             that built AuthenticatedSubject without a subject type
+ *
+ * Cache key:
+ *   {tenantId|'-'}:{subjectType}:{identifier}
+ *
+ * Composing the key from the tenant id, the subject type and the identifier
+ * prevents three distinct collision modes:
+ *   1. A User principal and a Service principal sharing the same textual id
+ *      (e.g. "partner-x") from silently overwriting each other's grants.
+ *   2. The same subject id resolved under two different tenants (e.g. an
+ *      admin tool iterating tenants in one process, or two concurrent
+ *      requests from different tenants for the same service receiver) from
+ *      seeing each other's grants.
+ *   3. CLI / single-tenant code paths (where `TenantContextStore::tryGet()`
+ *      returns null) are stamped with `-` so they never collide with a
+ *      legitimately tenanted entry. RbacCacheKeyCollisionTest pins the
+ *      contract.
  */
 #[SatisfiesServiceContract(of: SubjectGrantResolverInterface::class)]
 final class SubjectGrantResolver implements SubjectGrantResolverInterface
@@ -38,37 +63,126 @@ final class SubjectGrantResolver implements SubjectGrantResolverInterface
         }
 
         $userId = $subject->getIdentifier() ?? '';
+        $subjectType = $subject->getSubjectType() ?? AuthSubjectType::User;
+        $tenantId = $this->resolveTenantId();
+        $cacheKey = self::cacheKey($subjectType, $userId, $tenantId);
 
-        if ($this->isDemoRolePermissionsEnabled() && str_starts_with($userId, 'google:')) {
+        if ($subjectType === AuthSubjectType::User
+            && $this->isDemoRolePermissionsEnabled()
+            && str_starts_with($userId, 'google:')
+        ) {
             $permissions = $this->resolveDemoRolePermissions($userId);
             if ($permissions !== null) {
                 $grants = new SubjectGrantSet(
                     new CapabilityGrantSet([]),
                     new PermissionGrantSet($permissions),
                 );
-                RbacDecisionCache::set($userId, $grants);
+                RbacDecisionCache::set($cacheKey, $grants);
                 return $grants;
             }
         }
 
-        $cached = RbacDecisionCache::get($userId);
+        $cached = RbacDecisionCache::get($cacheKey);
         if ($cached !== null) {
             return $cached;
         }
 
-        $grants = $this->buildGrants($userId);
-        RbacDecisionCache::set($userId, $grants);
+        $grants = $this->buildGrants($userId, $subjectType, $tenantId);
+        RbacDecisionCache::set($cacheKey, $grants);
         return $grants;
     }
 
-    private function buildGrants(string $userId): SubjectGrantSet
+    /**
+     * Compose the cache key. Public so other rbac code (audit, debug, tests)
+     * can derive the same key without re-implementing the rule.
+     *
+     * `tenantId === null` is encoded as a literal `-` so untenanted entries
+     * cannot accidentally compare equal to an entry under a tenant whose id
+     * also happens to be empty. The tenant component sits FIRST so a future
+     * cache scan / per-tenant invalidation can prefix-match cheaply.
+     */
+    public static function cacheKey(AuthSubjectType $subjectType, string $identifier, ?string $tenantId = null): string
     {
-        $permissions = $this->resolvePermissions($userId);
+        $tenantPart = $tenantId !== null && $tenantId !== '' ? $tenantId : '-';
+        return $tenantPart . ':' . $subjectType->value . ':' . $identifier;
+    }
 
+    private function buildGrants(string $subjectId, AuthSubjectType $subjectType, ?string $tenantId): SubjectGrantSet
+    {
+        if ($subjectType === AuthSubjectType::Service) {
+            return new SubjectGrantSet(
+                capabilities: new CapabilityGrantSet($this->resolveServiceCapabilities($subjectId, $tenantId)),
+                // Service permissions are intentionally NOT modeled today —
+                // service auth is capability-based. PermissionProviderInterface
+                // is the user-domain contract; running it for a Service id
+                // would either return spurious user grants OR pollute the user
+                // permission audit trail. Empty is the safe default; introduce
+                // a ServicePermissionProviderInterface here if the model ever
+                // grows.
+                permissions: new PermissionGrantSet([]),
+            );
+        }
+
+        // AuthSubjectType::User (or null defaulted to User above)
         return new SubjectGrantSet(
-            capabilities: new CapabilityGrantSet([]),
-            permissions: new PermissionGrantSet($permissions),
+            capabilities: new CapabilityGrantSet($this->resolveCapabilities($subjectId)),
+            permissions: new PermissionGrantSet($this->resolvePermissions($subjectId)),
         );
+    }
+
+    /**
+     * @return list<\Semitexa\Authorization\Domain\Contract\CapabilityInterface>
+     */
+    private function resolveCapabilities(string $userId): array
+    {
+        $provider = $this->tryResolve(CapabilityProviderInterface::class);
+        if ($provider instanceof CapabilityProviderInterface) {
+            return $provider->getCapabilitiesForUser($userId);
+        }
+        return [];
+    }
+
+    /**
+     * @return list<\Semitexa\Authorization\Domain\Contract\CapabilityInterface>
+     */
+    private function resolveServiceCapabilities(string $serviceId, ?string $tenantId): array
+    {
+        $provider = $this->tryResolve(ServiceCapabilityProviderInterface::class);
+        if ($provider instanceof ServiceCapabilityProviderInterface) {
+            return $provider->getCapabilitiesForService($serviceId, $tenantId);
+        }
+        return [];
+    }
+
+    /**
+     * Resolve the current tenant id via the framework's tenant context store
+     * if one is wired. Returns null when no tenant has been resolved (CLI
+     * tasks without `tenant:run`, single-tenant deployments, system tasks).
+     *
+     * Reads the OrganizationLayer of the active context — that's the
+     * cross-package contract from semitexa-core. Avoids coupling to the
+     * concrete TenantContext class in semitexa-tenancy.
+     */
+    private function resolveTenantId(): ?string
+    {
+        $store = $this->tryResolve(TenantContextStoreInterface::class);
+        if (!$store instanceof TenantContextStoreInterface) {
+            return null;
+        }
+        $context = $store->tryGet();
+        if ($context === null) {
+            return null;
+        }
+        $orgLayer = new OrganizationLayer();
+        if (!$context->hasLayer($orgLayer)) {
+            return null;
+        }
+        $value = $context->getLayer($orgLayer);
+        if ($value === null) {
+            return null;
+        }
+        $raw = $value->rawValue();
+        return $raw !== '' ? $raw : null;
     }
 
     /** @return list<string> */
