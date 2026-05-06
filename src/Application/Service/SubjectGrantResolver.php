@@ -67,6 +67,11 @@ final class SubjectGrantResolver implements SubjectGrantResolverInterface
         $tenantId = $this->resolveTenantId();
         $cacheKey = self::cacheKey($subjectType, $userId, $tenantId);
 
+        $cached = RbacDecisionCache::get($cacheKey);
+        if ($cached !== null) {
+            return $cached;
+        }
+
         if ($subjectType === AuthSubjectType::User
             && $this->isDemoRolePermissionsEnabled()
             && str_starts_with($userId, 'google:')
@@ -80,11 +85,6 @@ final class SubjectGrantResolver implements SubjectGrantResolverInterface
                 RbacDecisionCache::set($cacheKey, $grants);
                 return $grants;
             }
-        }
-
-        $cached = RbacDecisionCache::get($cacheKey);
-        if ($cached !== null) {
-            return $cached;
         }
 
         $grants = $this->buildGrants($userId, $subjectType, $tenantId);

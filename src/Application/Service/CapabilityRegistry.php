@@ -54,6 +54,18 @@ final class CapabilityRegistry implements CapabilityRegistryInterface
 
     private function key(CapabilityInterface $capability): string
     {
-        return $capability::class . '::' . (method_exists($capability, 'name') ? $capability->name : (string) $capability);
+        if ($capability instanceof \UnitEnum) {
+            return $capability::class . '::' . $capability->name;
+        }
+
+        if (method_exists($capability, 'name')) {
+            return $capability::class . '::' . (string) $capability->name;
+        }
+
+        if (method_exists($capability, '__toString')) {
+            return $capability::class . '::' . (string) $capability;
+        }
+
+        return $capability::class . '::' . spl_object_hash($capability);
     }
 }
