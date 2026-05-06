@@ -2,11 +2,8 @@
 
 declare(strict_types=1);
 
-namespace Semitexa\Rbac\Service;
+namespace Semitexa\Rbac\Application\Service;
 
-use Semitexa\Core\Attribute\AsService;
-
-#[AsService]
 final class DemoRolePermissionProvider
 {
     private const DEMO_ROLE_PERMISSIONS = [

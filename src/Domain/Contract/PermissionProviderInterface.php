@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Semitexa\Rbac\Contract;
+namespace Semitexa\Rbac\Domain\Contract;
 
 /**
  * Provides permission slug lookup for an authenticated subject.
