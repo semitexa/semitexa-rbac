@@ -265,7 +265,19 @@ final class SubjectGrantResolver implements SubjectGrantResolverInterface
      */
     private function getProviders(string $interface): array
     {
-        if (isset($this->container) && $this->container instanceof SemitexaContainer) {
+        // method_exists fallback: composer.json allows `semitexa/core: "*"`,
+        // and `getAllImplementationsOf` is only present on cores that ship
+        // additive-contract enumeration. Older cores still satisfy the
+        // SemitexaContainer instanceof check, so call it only when present
+        // and degrade to the single active binding otherwise.
+        if (isset($this->container)
+            && $this->container instanceof SemitexaContainer
+            // PHPStan analyses against the current core, which always has
+            // this method, but at runtime the package may be installed on
+            // an older release.
+            // @phpstan-ignore function.alreadyNarrowedType
+            && method_exists($this->container, 'getAllImplementationsOf')
+        ) {
             return $this->container->getAllImplementationsOf($interface);
         }
         $single = $this->tryResolve($interface);
