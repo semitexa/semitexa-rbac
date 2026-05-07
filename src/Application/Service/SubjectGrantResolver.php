@@ -13,6 +13,7 @@ use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Attribute\SatisfiesServiceContract;
 use Semitexa\Core\Auth\AuthSubjectType;
 use Semitexa\Core\Authorization\SubjectInterface;
+use Semitexa\Core\Container\SemitexaContainer;
 use Semitexa\Core\Environment;
 use Semitexa\Core\Tenant\Layer\OrganizationLayer;
 use Semitexa\Core\Tenant\TenantContextStoreInterface;
@@ -135,11 +136,22 @@ final class SubjectGrantResolver implements SubjectGrantResolverInterface
      */
     private function resolveCapabilities(string $userId): array
     {
-        $provider = $this->tryResolve(CapabilityProviderInterface::class);
-        if ($provider instanceof CapabilityProviderInterface) {
-            return $provider->getCapabilitiesForUser($userId);
+        $providers = $this->getProviders(CapabilityProviderInterface::class);
+        $capabilities = [];
+        $seen = [];
+        foreach ($providers as $provider) {
+            foreach ($provider->getCapabilitiesForUser($userId) as $capability) {
+                $key = $capability::class . ':' . ($capability instanceof \BackedEnum
+                    ? (string) $capability->value
+                    : (string) spl_object_id($capability));
+                if (isset($seen[$key])) {
+                    continue;
+                }
+                $seen[$key] = true;
+                $capabilities[] = $capability;
+            }
         }
-        return [];
+        return $capabilities;
     }
 
     /**
@@ -147,11 +159,22 @@ final class SubjectGrantResolver implements SubjectGrantResolverInterface
      */
     private function resolveServiceCapabilities(string $serviceId, ?string $tenantId): array
     {
-        $provider = $this->tryResolve(ServiceCapabilityProviderInterface::class);
-        if ($provider instanceof ServiceCapabilityProviderInterface) {
-            return $provider->getCapabilitiesForService($serviceId, $tenantId);
+        $providers = $this->getProviders(ServiceCapabilityProviderInterface::class);
+        $capabilities = [];
+        $seen = [];
+        foreach ($providers as $provider) {
+            foreach ($provider->getCapabilitiesForService($serviceId, $tenantId) as $capability) {
+                $key = $capability::class . ':' . ($capability instanceof \BackedEnum
+                    ? (string) $capability->value
+                    : (string) spl_object_id($capability));
+                if (isset($seen[$key])) {
+                    continue;
+                }
+                $seen[$key] = true;
+                $capabilities[] = $capability;
+            }
         }
-        return [];
+        return $capabilities;
     }
 
     /**
@@ -188,13 +211,31 @@ final class SubjectGrantResolver implements SubjectGrantResolverInterface
     /** @return list<string> */
     private function resolvePermissions(string $userId): array
     {
-        // Try PermissionProviderInterface first (clean RBAC contract)
-        $provider = $this->tryResolve(PermissionProviderInterface::class);
-        if ($provider instanceof PermissionProviderInterface) {
-            return $provider->getPermissionsForUser($userId);
+        // Permission providers are additive — every module that registers a
+        // PermissionProviderInterface contributes the slugs it knows for the
+        // subject, and the union becomes the effective grant set. Anything
+        // narrower would let a process-local test fixture (AuthDemo's store)
+        // shadow the real backing store (Playground's role catalog) just
+        // because it ranks higher in module-order, which is the bug
+        // [403 on /playground/rbac/action/users-manage for the seeded
+        // Super Admin] this resolver was originally producing.
+        $slugs = [];
+        $hasProvider = false;
+        foreach ($this->getProviders(PermissionProviderInterface::class) as $provider) {
+            $hasProvider = true;
+            foreach ($provider->getPermissionsForUser($userId) as $slug) {
+                $slugs[$slug] = true;
+            }
         }
 
-        // Fallback: delegate to platform-user's RbacServiceInterface (legacy bridge)
+        if ($hasProvider) {
+            return array_keys($slugs);
+        }
+
+        // Legacy bridge: when no PermissionProviderInterface is installed,
+        // platform-user may still expose RbacServiceInterface. Kept for
+        // hosts that haven't migrated yet — additive providers above are
+        // the canonical path.
         $legacyRbacClass = 'Semitexa\\Platform\\User\\Domain\\Service\\RbacServiceInterface';
         $legacyRbac = $this->tryResolve($legacyRbacClass);
         if ($legacyRbac !== null && method_exists($legacyRbac, 'getUserPermissions')) {
@@ -210,6 +251,41 @@ final class SubjectGrantResolver implements SubjectGrantResolverInterface
         }
 
         return [];
+    }
+
+    /**
+     * Enumerate every container-registered implementation of an additive
+     * provider contract. Falls back to the active-only binding when the
+     * container does not expose the chain — keeps SubjectGrantResolver
+     * usable from unit tests that hand it a vanilla PSR-11 container.
+     *
+     * @template T of object
+     * @param class-string<T> $interface
+     * @return list<T>
+     */
+    private function getProviders(string $interface): array
+    {
+        // method_exists fallback: composer.json allows `semitexa/core: "*"`,
+        // and `getAllImplementationsOf` is only present on cores that ship
+        // additive-contract enumeration. Older cores still satisfy the
+        // SemitexaContainer instanceof check, so call it only when present
+        // and degrade to the single active binding otherwise.
+        if (isset($this->container)
+            && $this->container instanceof SemitexaContainer
+            // PHPStan against the current core narrows the SemitexaContainer
+            // type so method_exists() is always-true. On older cores the
+            // method is genuinely absent and method_exists() is the load-
+            // bearing guard. Use the tolerant `-next-line` form (no
+            // identifier) so PHPStan/core combos that *don't* emit
+            // `function.alreadyNarrowedType` won't blow up on
+            // `ignore.unmatchedIdentifier`.
+            // @phpstan-ignore-next-line
+            && method_exists($this->container, 'getAllImplementationsOf')
+        ) {
+            return $this->container->getAllImplementationsOf($interface);
+        }
+        $single = $this->tryResolve($interface);
+        return $single instanceof $interface ? [$single] : [];
     }
 
     /**
