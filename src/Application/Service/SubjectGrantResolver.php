@@ -272,10 +272,14 @@ final class SubjectGrantResolver implements SubjectGrantResolverInterface
         // and degrade to the single active binding otherwise.
         if (isset($this->container)
             && $this->container instanceof SemitexaContainer
-            // PHPStan analyses against the current core, which always has
-            // this method, but at runtime the package may be installed on
-            // an older release.
-            // @phpstan-ignore function.alreadyNarrowedType
+            // PHPStan against the current core narrows the SemitexaContainer
+            // type so method_exists() is always-true. On older cores the
+            // method is genuinely absent and method_exists() is the load-
+            // bearing guard. Use the tolerant `-next-line` form (no
+            // identifier) so PHPStan/core combos that *don't* emit
+            // `function.alreadyNarrowedType` won't blow up on
+            // `ignore.unmatchedIdentifier`.
+            // @phpstan-ignore-next-line
             && method_exists($this->container, 'getAllImplementationsOf')
         ) {
             return $this->container->getAllImplementationsOf($interface);
