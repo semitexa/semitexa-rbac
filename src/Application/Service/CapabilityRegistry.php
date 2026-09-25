@@ -34,7 +34,32 @@ final class CapabilityRegistry implements CapabilityRegistryInterface
      */
     public function register(CapabilityInterface $capability, int $segment, int $bit): void
     {
-        $this->map[$this->key($capability)] = ['segment' => $segment, 'bit' => $bit];
+        if ($segment < 0 || $bit < 0 || $bit > 31) {
+            throw new \InvalidArgumentException(sprintf(
+                'Capability %s cannot be registered at segment %d, bit %d: segments start at 0 and bits run 0-31.',
+                $this->key($capability),
+                $segment,
+                $bit,
+            ));
+        }
+
+        $key = $this->key($capability);
+
+        // Two capabilities on one bit grant each other: whoever holds either
+        // passes a check for both. Re-registering the SAME capability moves it.
+        foreach ($this->map as $otherKey => $pos) {
+            if ($otherKey !== $key && $pos['segment'] === $segment && $pos['bit'] === $bit) {
+                throw new \InvalidArgumentException(sprintf(
+                    'Capability %s cannot be registered at segment %d, bit %d: %s already occupies it.',
+                    $key,
+                    $segment,
+                    $bit,
+                    $otherKey,
+                ));
+            }
+        }
+
+        $this->map[$key] = ['segment' => $segment, 'bit' => $bit];
     }
 
     public function check(CapabilityInterface $capability, array $subjectSegments): bool

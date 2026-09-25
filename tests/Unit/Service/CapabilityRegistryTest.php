@@ -120,6 +120,53 @@ final class CapabilityRegistryTest extends TestCase
     }
 
     /**
+     * Two capabilities on one bit answer for each other: the holder of either
+     * passes a check for both. Registration must refuse the second one.
+     */
+    #[Test]
+    public function two_capabilities_cannot_share_a_bit(): void
+    {
+        $registry = new CapabilityRegistry();
+        $registry->register(TestCapability::PublishArticle, segment: 0, bit: 1);
+
+        try {
+            $registry->register(TestCapability::DeleteArticle, segment: 0, bit: 1);
+            self::fail('a second capability on an occupied bit must be rejected');
+        } catch (\InvalidArgumentException) {
+        }
+
+        self::assertFalse(
+            $registry->check(TestCapability::DeleteArticle, [1 << 1]),
+            'the rejected capability must stay unregistered, and so denied',
+        );
+    }
+
+    /**
+     * Positions outside a 32-bit segment are layout mistakes: bits 32-63 are
+     * never set in a grant stored as a 32-bit word, bit 64 and up shifts to 0,
+     * and a negative position throws on every check. Catch them at
+     * registration, where the mistake is.
+     *
+     * @return iterable<string, array{int, int}>
+     */
+    public static function outOfRangePositions(): iterable
+    {
+        yield 'bit 32' => [0, 32];
+        yield 'bit 64' => [0, 64];
+        yield 'negative bit' => [0, -1];
+        yield 'negative segment' => [-1, 0];
+    }
+
+    #[Test]
+    #[\PHPUnit\Framework\Attributes\DataProvider('outOfRangePositions')]
+    public function positions_outside_a_segment_are_rejected(int $segment, int $bit): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+
+        (new CapabilityRegistry())->register(TestCapability::PublishArticle, $segment, $bit);
+    }
+
+    /**
      * Identity is the enum case, not the string. Two enums that happen to share
      * a case name are different capabilities.
      */
