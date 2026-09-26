@@ -5,17 +5,19 @@ declare(strict_types=1);
 namespace Semitexa\Rbac\Application\Service;
 
 use Semitexa\Authorization\Domain\Model\SubjectGrantSet;
+use Semitexa\Core\Attribute\WorkerState;
 use Semitexa\Core\Lifecycle\CurrentRequestStore;
 use Semitexa\Core\Lifecycle\PerRequestStateRegistry;
 use Semitexa\Core\Request;
+use Semitexa\Core\Support\CoroutineLocal;
 
 /**
  * Request-scoped, Swoole-coroutine-aware cache for resolved subject grants.
  *
  * Grant resolution (DB lookup) runs once per authenticated user per request.
- * The cache is isolated per Swoole coroutine (auto-cleared when the coroutine
- * ends) and, in CLI / queue-worker mode, resets via the framework's per-request
- * lifecycle registry — see {@see PerRequestStateRegistry} and the finally
+ * Entries and their owner live in {@see CoroutineLocal}: isolated per Swoole
+ * coroutine (auto-cleared when the coroutine ends) and, in CLI / queue-worker
+ * mode, reset via the framework's per-request lifecycle registry — see {@see PerRequestStateRegistry} and the finally
  * blocks in Application::handleRequest and QueueWorker::processPayload.
  *
  * The first call to {@see set()} or {@see get()} registers a clear() callback
@@ -36,45 +38,31 @@ final class RbacDecisionCache
     private const OWNER_KEY = '__rbac_grants_owner';
     private const REGISTRY_NAME = 'rbac_decision_cache';
 
-    /** @var array<string, SubjectGrantSet> */
-    private static array $staticFallback = [];
-
-    /** @var \WeakReference<Request>|null */
-    private static ?\WeakReference $staticOwner = null;
-
+    #[WorkerState('Records that the clear() resetter was registered once per worker; holds no request data.')]
     private static bool $registered = false;
 
     public static function get(string $userId): ?SubjectGrantSet
     {
         self::ensureRegistered();
         self::dropIfRequestChanged();
-        if (self::inCoroutine()) {
-            return \Swoole\Coroutine::getContext()[self::KEY][$userId] ?? null;
-        }
-        return self::$staticFallback[$userId] ?? null;
+
+        return self::entries()[$userId] ?? null;
     }
 
     public static function set(string $userId, SubjectGrantSet $grants): void
     {
         self::ensureRegistered();
         self::dropIfRequestChanged();
-        if (self::inCoroutine()) {
-            \Swoole\Coroutine::getContext()[self::KEY][$userId] = $grants;
-            return;
-        }
-        self::$staticFallback[$userId] = $grants;
+
+        $entries = self::entries();
+        $entries[$userId] = $grants;
+        CoroutineLocal::set(self::KEY, $entries);
     }
 
     public static function clear(): void
     {
-        if (self::inCoroutine()) {
-            $context = \Swoole\Coroutine::getContext();
-            $context[self::KEY] = [];
-            unset($context[self::OWNER_KEY]);
-            return;
-        }
-        self::$staticFallback = [];
-        self::$staticOwner = null;
+        CoroutineLocal::remove(self::KEY);
+        CoroutineLocal::remove(self::OWNER_KEY);
     }
 
     /**
@@ -86,26 +74,29 @@ final class RbacDecisionCache
     private static function dropIfRequestChanged(): void
     {
         $current = CurrentRequestStore::get();
+        $owner = CoroutineLocal::get(self::OWNER_KEY);
 
-        if (self::inCoroutine()) {
-            $context = \Swoole\Coroutine::getContext();
-            $owner = $context[self::OWNER_KEY] ?? null;
-            if (self::ownedBy($owner instanceof \WeakReference ? $owner : null, $current)) {
-                return;
-            }
-            $context[self::KEY] = [];
-            $context[self::OWNER_KEY] = $current !== null ? \WeakReference::create($current) : null;
+        if (self::ownedBy($owner instanceof \WeakReference ? $owner : null, $current)) {
             return;
         }
 
-        if (self::ownedBy(self::$staticOwner, $current)) {
-            return;
+        CoroutineLocal::remove(self::KEY);
+        if ($current !== null) {
+            CoroutineLocal::set(self::OWNER_KEY, \WeakReference::create($current));
+        } else {
+            CoroutineLocal::remove(self::OWNER_KEY);
         }
-        self::$staticFallback = [];
-        self::$staticOwner = $current !== null ? \WeakReference::create($current) : null;
     }
 
-    /** @param \WeakReference<Request>|null $owner */
+    /** @return array<string, SubjectGrantSet> */
+    private static function entries(): array
+    {
+        $entries = CoroutineLocal::get(self::KEY, []);
+
+        return is_array($entries) ? $entries : [];
+    }
+
+    /** @param \WeakReference<object>|null $owner */
     private static function ownedBy(?\WeakReference $owner, ?Request $current): bool
     {
         if ($current === null) {
@@ -132,11 +123,5 @@ final class RbacDecisionCache
                 self::clear();
             },
         );
-    }
-
-    private static function inCoroutine(): bool
-    {
-        return class_exists(\Swoole\Coroutine::class, false)
-            && \Swoole\Coroutine::getCid() > 0;
     }
 }

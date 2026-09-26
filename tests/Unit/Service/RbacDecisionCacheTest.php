@@ -10,6 +10,7 @@ use Psr\Container\ContainerInterface;
 use Semitexa\Authorization\Domain\Model\AuthenticatedSubject;
 use Semitexa\Core\Auth\AuthSubjectType;
 use Semitexa\Core\Lifecycle\CurrentRequestStore;
+use Semitexa\Core\Lifecycle\PerRequestStateRegistry;
 use Semitexa\Core\Request;
 use Semitexa\Core\Support\CoroutineLocal;
 use Semitexa\Rbac\Application\Service\RbacDecisionCache;
@@ -29,8 +30,17 @@ use Swoole\Coroutine;
  */
 final class RbacDecisionCacheTest extends TestCase
 {
+    /** @var array<string, callable(): void> */
+    private array $savedResetters = [];
+    private bool $savedRegistered = false;
+
     protected function setUp(): void
     {
+        // Resolving grants registers the cache with the process-global
+        // lifecycle registry; snapshot both so tearDown can put them back.
+        $this->savedResetters = self::staticProperty(PerRequestStateRegistry::class, 'resetters')->getValue();
+        $this->savedRegistered = self::staticProperty(RbacDecisionCache::class, 'registered')->getValue();
+
         RbacDecisionCache::clear();
         CurrentRequestStore::clear();
         CoroutineLocal::resetCliStore();
@@ -41,6 +51,15 @@ final class RbacDecisionCacheTest extends TestCase
         RbacDecisionCache::clear();
         CurrentRequestStore::clear();
         CoroutineLocal::resetCliStore();
+
+        self::staticProperty(PerRequestStateRegistry::class, 'resetters')->setValue(null, $this->savedResetters);
+        self::staticProperty(RbacDecisionCache::class, 'registered')->setValue(null, $this->savedRegistered);
+    }
+
+    /** @param class-string $class */
+    private static function staticProperty(string $class, string $name): \ReflectionProperty
+    {
+        return new \ReflectionProperty($class, $name);
     }
 
     #[Test]
