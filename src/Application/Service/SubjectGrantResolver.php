@@ -301,11 +301,19 @@ final class SubjectGrantResolver implements SubjectGrantResolverInterface
         return $provider->getPermissionsForUser($userId);
     }
 
+    /**
+     * Environments where the demo roles (`google:*:admin` and friends) grant
+     * permissions without an explicit opt-in. An allowlist, not "anything but
+     * prod": `staging` or a mistyped `production` must not hand admin to any
+     * account whose id merely has the right shape.
+     */
+    private const DEMO_ROLE_ENVIRONMENTS = ['dev', 'local', 'test', 'testing'];
+
     private function isDemoRolePermissionsEnabled(): bool
     {
-        $appEnv = strtolower(Environment::getEnvValue('APP_ENV', 'prod') ?? 'prod');
+        $appEnv = strtolower(trim(Environment::getEnvValue('APP_ENV', 'prod') ?? 'prod'));
 
-        return $appEnv !== 'prod'
+        return in_array($appEnv, self::DEMO_ROLE_ENVIRONMENTS, true)
             || Environment::getEnvValue('DEMO_RBAC_ENABLED', 'false') === 'true';
     }
 
