@@ -32,14 +32,21 @@ final class RbacDecisionCacheTest extends TestCase
 {
     /** @var array<string, callable(): void> */
     private array $savedResetters = [];
-    private bool $savedRegistered = false;
+    /** @var array<class-string, bool> */
+    private array $savedRegistered = [];
 
     protected function setUp(): void
     {
-        // Resolving grants registers the cache with the process-global
-        // lifecycle registry; snapshot both so tearDown can put them back.
+        // Resolving grants and publishing the request register the cache and
+        // the request store with the process-global lifecycle registry, each
+        // guarded by its own once-only flag; snapshot all of it so tearDown
+        // can put it back. Restoring the resetters without the flags would
+        // leave a later test's set() believing it is already registered.
         $this->savedResetters = self::staticProperty(PerRequestStateRegistry::class, 'resetters')->getValue();
-        $this->savedRegistered = self::staticProperty(RbacDecisionCache::class, 'registered')->getValue();
+        $this->savedRegistered = [];
+        foreach ([RbacDecisionCache::class, CurrentRequestStore::class] as $class) {
+            $this->savedRegistered[$class] = (bool) self::staticProperty($class, 'registered')->getValue();
+        }
 
         RbacDecisionCache::clear();
         CurrentRequestStore::clear();
@@ -53,7 +60,9 @@ final class RbacDecisionCacheTest extends TestCase
         CoroutineLocal::resetCliStore();
 
         self::staticProperty(PerRequestStateRegistry::class, 'resetters')->setValue(null, $this->savedResetters);
-        self::staticProperty(RbacDecisionCache::class, 'registered')->setValue(null, $this->savedRegistered);
+        foreach ($this->savedRegistered as $class => $registered) {
+            self::staticProperty($class, 'registered')->setValue(null, $registered);
+        }
     }
 
     /** @param class-string $class */
