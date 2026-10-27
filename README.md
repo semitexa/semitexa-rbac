@@ -12,7 +12,7 @@ Implements `SubjectGrantResolverInterface` from `semitexa/authorization` (`Subje
 
 ## Role in Semitexa
 
-Depends on `semitexa/core` and `semitexa/authorization`. Delegates to `PermissionProviderInterface` and `CapabilityProviderInterface` implementations, which the application provides, for the storage of role assignments and permission grants. No Semitexa package ships a `PermissionProviderInterface` implementation.
+Depends on `semitexa/core` and `semitexa/authorization`. Delegates to `PermissionProviderInterface` and `CapabilityProviderInterface` implementations for the storage of role assignments and permission grants. `semitexa/platform-user` ships one: stored roles assigned with `role:create` / `role:assign` (`StoredRolePermissionProvider`); a project can add its own, and their grants add up.
 
 ## Key Features
 
