@@ -27,6 +27,33 @@ use Semitexa\Core\Attribute\Capability;
         'a permission matrix kept in a config file and in a database, drifting apart',
     ],
     seeAlso: 'semitexa/authorization',
+    usage: <<<'USAGE'
+        // Stored roles: require semitexa/platform-user, which this package does not install, run orm:sync, then:
+        bin/semitexa role:create clerk -p orders.manage --shared
+        bin/semitexa role:assign clerk --email=ada@shop.test
+
+        // Or roles of your own. Without the attribute it is never asked; with it, all providers' slugs add up.
+        #[SatisfiesServiceContract(of: PermissionProviderInterface::class)]
+        final class ShopRoleProvider implements PermissionProviderInterface
+        {
+            #[InjectAsReadonly]
+            protected ShopRoleStore $roles;
+            #[InjectAsReadonly]
+            protected TenantContextStoreInterface $tenants;
+
+            public function getPermissionsForUser(string $userId): array
+            {
+                // Silent: the call names no tenant. Looked up by user alone, a role from one tenant grants in all.
+                return $this->roles->slugsOf($userId, TenantContextAccess::tenantId($this->tenants->tryGet()));
+            }
+        }
+
+        // A handler writes nothing: a guest gets a 401, a user without the slug a 403, before it runs.
+        #[RequiresPermission('orders.manage')]
+        #[AsProtectedPayload(path: '/orders', methods: ['POST'], responseWith: OrdersResource::class)]
+        final class ManageOrdersPayload {}
+        // Roles here grant slugs: a #[RequiresCapability] route stays 403 until a CapabilityProviderInterface of yours grants it.
+        USAGE,
 )]
 final class Capabilities
 {
